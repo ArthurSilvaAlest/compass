@@ -2,9 +2,9 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-import asyncio
-import uuid
 from datetime import datetime
+
+from api.models.agent_manager import AgentManager
 
 app = FastAPI(title="Compass API")
 
@@ -38,8 +38,8 @@ class ChatCompletionResponse(BaseModel):
     choices: List[Dict[str, Any]]
     usage: Dict[str, int]
 
-# Armazenamento de tarefas em memória
-tasks: Dict[str, Any] = {}
+# Instância global do AgentManager
+agent_manager = AgentManager()
 
 async def verify_api_key(authorization: str = Header(...)):
     api_key = authorization.replace("Bearer ", "")
@@ -52,31 +52,56 @@ async def create_chat_completion(
     request: ChatCompletionRequest,
     api_key: str = Depends(verify_api_key)
 ):
-    # Gerar ID único para a tarefa
-    task_id = str(uuid.uuid4())
-    
-    # Por enquanto apenas retorna um mock
-    # TODO: Integrar com Agent Zero
-    return {
-        "task_id": task_id,
-        "status": "running",
-        "created": int(datetime.now().timestamp())
-    }
+    """
+    Cria uma nova tarefa de completion usando o Agent Zero.
+    """
+    try:
+        # Converte as mensagens para o formato esperado
+        messages = [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "name": msg.name
+            } for msg in request.messages
+        ]
+        
+        # Cria a tarefa usando o AgentManager
+        result = await agent_manager.create_completion(
+            messages=messages,
+            model=request.model,
+            temperature=request.temperature or 1.0,
+            stream=request.stream or False
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/v1/chat/status/{task_id}")
 async def get_chat_status(
     task_id: str,
     api_key: str = Depends(verify_api_key)
 ):
-    if task_id not in tasks:
-        raise HTTPException(status_code=404, detail="Task not found")
+    """
+    Obtém o status de uma tarefa de chat.
+    """
+    try:
+        result = await agent_manager.get_task_status(task_id)
         
-    # Por enquanto apenas retorna um mock
-    # TODO: Implementar verificação real do status
-    return {
-        "status": "running",
-        "created": int(datetime.now().timestamp())
-    }
+        if result["status"] == "not_found":
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if result["status"] == "completed":
+            # Limpa os recursos da tarefa após retornar o resultado
+            agent_manager.cleanup_task(task_id)
+            
+        return result
+        
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
