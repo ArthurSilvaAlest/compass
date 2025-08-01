@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=nossa-chave-secreta
+    volumes:
+      - ../api:/app/api
+      - ../agent:/app/agent
+
+  webui:
+    image: openwebui/open-webui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - API_BASE_URL=http://api:8000/v1
+      - API_KEY=nossa-chave-secreta
+    depends_on:
+      - api
+
+  # MCPs serão adicionados conforme forem implementados
+  # mcp-jira:
+  #   build:
+  #     context: ../mcps/jira
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     - JIRA_URL=https://seu-jira.atlassian.net
+  #     - JIRA_USER=seu-usuario
+  #     - JIRA_TOKEN=seu-token
